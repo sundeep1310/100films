@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Movies Database - JavaScript Promises Demo</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1> Movies Database</h1>
+            <p>JavaScript Promises Demo with <code>then()</code>, <code>catch()</code>, and <code>finally()</code></p>
+        </header>
+
+        <div class="controls">
+            <button id="loadMoviesBtn" class="btn primary">Load Movies</button>
+            <button id="loadRandomMovieBtn" class="btn secondary">Load Random Movie</button>
+            <button id="clearMoviesBtn" class="btn outline">Clear Movies</button>
+        </div>
+
+        <div class="status-panel">
+            <div id="loadingIndicator" class="loading hidden">
+                <div class="spinner"></div>
+                <span>Loading movies...</span>
+            </div>
+            <div id="errorMessage" class="error hidden"></div>
+            <div id="successMessage" class="success hidden"></div>
+        </div>
+
+        <div class="promise-log">
+            <h3>Promise Execution Log</h3>
+            <div id="promiseLog" class="log-container">
+                <p class="log-entry info"> Ready to demonstrate JavaScript promises!</p>
+            </div>
+        </div>
+
+        <div class="movies-container">
+            <div id="moviesGrid" class="movies-grid"></div>
+            <div id="pagination" class="pagination hidden"></div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
