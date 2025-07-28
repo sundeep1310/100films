@@ -1,27 +1,30 @@
 // DOM elements
 const elements = {
-    loadMoviesBtn: document.getElementById('loadMoviesBtn'),
-    loadRandomMovieBtn: document.getElementById('loadRandomMovieBtn'),
-    clearMoviesBtn: document.getElementById('clearMoviesBtn'),
+    searchInput: document.getElementById('searchInput'),
+    searchBtn: document.getElementById('searchBtn'),
+    loadMoreBtn: document.getElementById('loadMoreBtn'),
     loadingIndicator: document.getElementById('loadingIndicator'),
     errorMessage: document.getElementById('errorMessage'),
     successMessage: document.getElementById('successMessage'),
-    promiseLog: document.getElementById('promiseLog'),
     moviesGrid: document.getElementById('moviesGrid'),
-    pagination: document.getElementById('pagination')
+    pagination: document.getElementById('pagination'),
+    movieModal: document.getElementById('movieModal'),
+    closeModal: document.getElementById('closeModal'),
+    modalPoster: document.getElementById('modalPoster'),
+    modalTitle: document.getElementById('modalTitle'),
+    modalRating: document.getElementById('modalRating'),
+    modalDate: document.getElementById('modalDate'),
+    modalOverview: document.getElementById('modalOverview'),
+    modalReleaseDate: document.getElementById('modalReleaseDate'),
+    modalVoteCount: document.getElementById('modalVoteCount')
 };
 
 let currentPage = 1;
+let allMovies = [];
+let isSearchMode = false;
+let currentSearchTerm = '';
 
 // Utility functions
-function log(message, type = 'info') {
-    const logEntry = document.createElement('p');
-    logEntry.className = `log-entry ${type}`;
-    logEntry.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
-    elements.promiseLog.appendChild(logEntry);
-    elements.promiseLog.scrollTop = elements.promiseLog.scrollHeight;
-}
-
 function showStatus(type, message) {
     elements.loadingIndicator.classList.add('hidden');
     elements.errorMessage.classList.add('hidden');
@@ -40,58 +43,64 @@ function showStatus(type, message) {
 
 // API functions demonstrating JavaScript promises
 function fetchMovies(page = 1) {
-    log(` Starting promise to fetch movies (page ${page})`, 'info');
     showStatus('loading');
     
     return fetch(`https://jsonfakery.com/movies/paginated?page=${page}`)
         .then(response => {
-            log(` Promise resolved - HTTP ${response.status}`, 'success');
             if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
             return response.json();
         })
         .then(data => {
-            log(` Successfully fetched ${data.data.length} movies`, 'success');
             currentPage = data.current_page;
-            displayMovies(data.data);
-            setupPagination(data);
-            showStatus('success', `Loaded ${data.data.length} movies successfully!`);
+            
+            // Use spread operator to add new movies to existing ones
+            if (page === 1) {
+                allMovies = [...data.data];
+            } else {
+                allMovies = [...allMovies, ...data.data];
+            }
+            
+            displayMovies(allMovies);
+            showStatus('success', `Loaded ${data.data.length} more movies successfully!`);
             return data;
         })
         .catch(error => {
-            log(` Promise rejected: ${error.message}`, 'error');
             showStatus('error', `Failed to load movies: ${error.message}`);
             throw error;
         })
         .finally(() => {
-            log(' Promise finally block executed - cleanup complete', 'warning');
-            setTimeout(() => log(' Finally always runs regardless of success/failure', 'info'), 1000);
+            // Promise finally block - cleanup operations can go here
         });
 }
 
-function fetchRandomMovie() {
-    log(' Fetching random movie using promise chain', 'info');
-    showStatus('loading');
+function searchMovies(query) {
+    if (!query.trim()) {
+        displayMovies(allMovies);
+        isSearchMode = false;
+        return;
+    }
     
-    return fetch('https://jsonfakery.com/movies/random')
+    showStatus('loading');
+    isSearchMode = true;
+    currentSearchTerm = query;
+    
+    return fetch(`https://jsonfakery.com/movies/search?q=${encodeURIComponent(query)}`)
         .then(response => {
-            log(' Random movie API responded', 'success');
-            if (!response.ok) throw new Error(`Failed to fetch: ${response.status}`);
+            if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
             return response.json();
         })
-        .then(movieData => {
-            log(' Random movie data processed', 'success');
-            elements.moviesGrid.innerHTML = '';
-            displayMovies([movieData]);
-            elements.pagination.classList.add('hidden');
-            showStatus('success', 'Random movie loaded successfully!');
-            return movieData;
+        .then(data => {
+            const searchResults = Array.isArray(data) ? data : data.data || [];
+            displayMovies(searchResults);
+            showStatus('success', `Found ${searchResults.length} movies matching "${query}"`);
+            return searchResults;
         })
         .catch(error => {
-            log(` Random movie fetch failed: ${error.message}`, 'error');
-            showStatus('error', `Failed to load random movie: ${error.message}`);
+            showStatus('error', `Search failed: ${error.message}`);
+            throw error;
         })
         .finally(() => {
-            log(' Random movie promise completed (finally)', 'warning');
+            // Promise finally block - cleanup operations can go here
         });
 }
 
@@ -100,14 +109,14 @@ function displayMovies(movies) {
     if (movies.length === 0) {
         elements.moviesGrid.innerHTML = `
             <div class="empty-state">
-                <h3> No movies found</h3>
-                <p>Click "Load Movies" to fetch some movies!</p>
+                <h3>🎬 No movies found</h3>
+                <p>Try a different search term or load more movies!</p>
             </div>`;
         return;
     }
 
     elements.moviesGrid.innerHTML = movies.map((movie, index) => `
-        <div class="movie-card" style="animation-delay: ${index * 0.1}s">
+        <div class="movie-card" style="animation-delay: ${index * 0.05}s" data-movie-id="${movie.id || index}">
             <img src="${movie.poster_path || 'https://via.placeholder.com/280x200?text=No+Image'}" 
                  alt="${movie.original_title}" class="movie-poster"
                  onerror="this.src='https://via.placeholder.com/280x200?text=No+Image'">
@@ -121,68 +130,96 @@ function displayMovies(movies) {
             </div>
         </div>
     `).join('');
+
+    // Add hover event listeners to movie cards
+    addMovieCardListeners(movies);
 }
 
-function setupPagination(data) {
-    if (data.last_page <= 1) {
-        elements.pagination.classList.add('hidden');
+function addMovieCardListeners(movies) {
+    const movieCards = document.querySelectorAll('.movie-card');
+    movieCards.forEach((card, index) => {
+        card.addEventListener('mouseenter', () => {
+            const movie = movies[index];
+            showMovieModal(movie);
+        });
+    });
+}
+
+function showMovieModal(movie) {
+    elements.modalPoster.src = movie.poster_path || 'https://via.placeholder.com/300x450?text=No+Image';
+    elements.modalTitle.textContent = movie.original_title;
+    elements.modalRating.textContent = `⭐ ${movie.vote_average}/10`;
+    elements.modalDate.textContent = new Date(movie.release_date).getFullYear() || 'N/A';
+    elements.modalOverview.textContent = movie.overview || 'No description available.';
+    elements.modalReleaseDate.textContent = movie.release_date || 'N/A';
+    elements.modalVoteCount.textContent = movie.vote_count || 'N/A';
+    
+    elements.movieModal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+}
+
+function hideMovieModal() {
+    elements.movieModal.classList.add('hidden');
+    document.body.style.overflow = 'auto';
+}
+
+function loadMoreMovies() {
+    if (isSearchMode) {
+        showStatus('error', 'Cannot load more movies while in search mode. Clear search first.');
         return;
     }
-
-    const maxVisible = 5;
-    const start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
-    const end = Math.min(data.last_page, start + maxVisible - 1);
-    let html = '';
-
-    if (currentPage > 1) html += `<button class="page-btn" onclick="changePage(${currentPage - 1})">« Previous</button>`;
     
-    for (let i = start; i <= end; i++) {
-        html += `<button class="page-btn ${i === currentPage ? 'active' : ''}" onclick="changePage(${i})">${i}</button>`;
-    }
-    
-    if (currentPage < data.last_page) html += `<button class="page-btn" onclick="changePage(${currentPage + 1})">Next »</button>`;
-
-    elements.pagination.innerHTML = html;
-    elements.pagination.classList.remove('hidden');
+    const nextPage = currentPage + 1;
+    fetchMovies(nextPage);
 }
 
-function changePage(page) {
-    if (page !== currentPage) {
-        log(` Navigating to page ${page}`, 'info');
-        fetchMovies(page)
-            .then(() => log(` Successfully loaded page ${page}`, 'success'))
-            .catch(error => log(` Failed to load page ${page}: ${error.message}`, 'error'));
+function handleSearch() {
+    const query = elements.searchInput.value.trim();
+    if (query) {
+        searchMovies(query);
+    } else {
+        // If search is empty, show all movies
+        displayMovies(allMovies);
+        isSearchMode = false;
+        showStatus('success', 'Showing all movies');
     }
-}
-
-function clearMovies() {
-    log('🧹 Clearing movies display', 'info');
-    elements.moviesGrid.innerHTML = '';
-    elements.pagination.classList.add('hidden');
-    showStatus();
-    log('✨ Display cleared - ready for new content', 'success');
 }
 
 // Event listeners
-elements.loadMoviesBtn.addEventListener('click', () => {
-    fetchMovies(1)
-        .then(() => log(' Movie loading promise chain completed!', 'success'))
-        .catch(() => log(' Movie loading promise chain failed', 'error'));
+elements.searchBtn.addEventListener('click', handleSearch);
+
+elements.searchInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+        handleSearch();
+    }
 });
 
-elements.loadRandomMovieBtn.addEventListener('click', () => {
-    fetchRandomMovie()
-        .then(() => log(' Random movie promise executed successfully!', 'success'))
-        .catch(() => log(' Random movie promise failed', 'error'));
+elements.searchInput.addEventListener('input', (e) => {
+    if (e.target.value === '') {
+        displayMovies(allMovies);
+        isSearchMode = false;
+        showStatus('success', 'Showing all movies');
+    }
 });
 
-elements.clearMoviesBtn.addEventListener('click', clearMovies);
+elements.loadMoreBtn.addEventListener('click', loadMoreMovies);
 
-// Make changePage globally accessible
-window.changePage = changePage;
+elements.closeModal.addEventListener('click', hideMovieModal);
 
-// Welcome message
-setTimeout(() => {
-    log(' Welcome! This demo shows JavaScript promises with then(), catch(), and finally()', 'info');
-    log(' Click buttons above to see promises in action with real API calls', 'info');
-}, 1000);
+elements.movieModal.addEventListener('click', (e) => {
+    if (e.target === elements.movieModal || e.target.classList.contains('modal-backdrop')) {
+        hideMovieModal();
+    }
+});
+
+// Close modal with Escape key
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !elements.movieModal.classList.contains('hidden')) {
+        hideMovieModal();
+    }
+});
+
+// Load initial movies on page load
+document.addEventListener('DOMContentLoaded', () => {
+    fetchMovies(1);
+});
