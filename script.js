@@ -1,8 +1,5 @@
 // DOM elements
 const elements = {
-    searchInput: document.getElementById('searchInput'),
-    searchBtn: document.getElementById('searchBtn'),
-    loadMoreBtn: document.getElementById('loadMoreBtn'),
     loadingIndicator: document.getElementById('loadingIndicator'),
     errorMessage: document.getElementById('errorMessage'),
     successMessage: document.getElementById('successMessage'),
@@ -20,9 +17,8 @@ const elements = {
 };
 
 let currentPage = 1;
-let allMovies = [];
-let isSearchMode = false;
-let currentSearchTerm = '';
+let totalPages = 1;
+let currentMovies = [];
 
 // Utility functions
 function showStatus(type, message) {
@@ -44,6 +40,7 @@ function showStatus(type, message) {
 // API functions demonstrating JavaScript promises
 function fetchMovies(page = 1) {
     showStatus('loading');
+    currentPage = page;
     
     return fetch(`https://jsonfakery.com/movies/paginated?page=${page}`)
         .then(response => {
@@ -51,52 +48,17 @@ function fetchMovies(page = 1) {
             return response.json();
         })
         .then(data => {
+            currentMovies = data.data;
+            totalPages = data.last_page;
             currentPage = data.current_page;
             
-            // Use spread operator to add new movies to existing ones
-            if (page === 1) {
-                allMovies = [...data.data];
-            } else {
-                allMovies = [...allMovies, ...data.data];
-            }
-            
-            displayMovies(allMovies);
-            showStatus('success', `Loaded ${data.data.length} more movies successfully!`);
+            displayMovies(currentMovies);
+            setupPagination(data);
+            showStatus('success', `Loaded ${data.data.length} movies from page ${currentPage}`);
             return data;
         })
         .catch(error => {
             showStatus('error', `Failed to load movies: ${error.message}`);
-            throw error;
-        })
-        .finally(() => {
-            // Promise finally block - cleanup operations can go here
-        });
-}
-
-function searchMovies(query) {
-    if (!query.trim()) {
-        displayMovies(allMovies);
-        isSearchMode = false;
-        return;
-    }
-    
-    showStatus('loading');
-    isSearchMode = true;
-    currentSearchTerm = query;
-    
-    return fetch(`https://jsonfakery.com/movies/search?q=${encodeURIComponent(query)}`)
-        .then(response => {
-            if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
-            return response.json();
-        })
-        .then(data => {
-            const searchResults = Array.isArray(data) ? data : data.data || [];
-            displayMovies(searchResults);
-            showStatus('success', `Found ${searchResults.length} movies matching "${query}"`);
-            return searchResults;
-        })
-        .catch(error => {
-            showStatus('error', `Search failed: ${error.message}`);
             throw error;
         })
         .finally(() => {
@@ -110,13 +72,13 @@ function displayMovies(movies) {
         elements.moviesGrid.innerHTML = `
             <div class="empty-state">
                 <h3>🎬 No movies found</h3>
-                <p>Try a different search term or load more movies!</p>
+                <p>Try loading a different page!</p>
             </div>`;
         return;
     }
 
     elements.moviesGrid.innerHTML = movies.map((movie, index) => `
-        <div class="movie-card" style="animation-delay: ${index * 0.05}s" data-movie-id="${movie.id || index}">
+        <div class="movie-card" style="animation-delay: ${index * 0.05}s" data-movie-index="${index}">
             <img src="${movie.poster_path || 'https://via.placeholder.com/280x200?text=No+Image'}" 
                  alt="${movie.original_title}" class="movie-poster"
                  onerror="this.src='https://via.placeholder.com/280x200?text=No+Image'">
@@ -131,15 +93,16 @@ function displayMovies(movies) {
         </div>
     `).join('');
 
-    // Add hover event listeners to movie cards
-    addMovieCardListeners(movies);
+    // Add click event listeners to movie cards
+    addMovieCardListeners();
 }
 
-function addMovieCardListeners(movies) {
+function addMovieCardListeners() {
     const movieCards = document.querySelectorAll('.movie-card');
-    movieCards.forEach((card, index) => {
-        card.addEventListener('mouseenter', () => {
-            const movie = movies[index];
+    movieCards.forEach((card) => {
+        card.addEventListener('click', () => {
+            const movieIndex = parseInt(card.dataset.movieIndex);
+            const movie = currentMovies[movieIndex];
             showMovieModal(movie);
         });
     });
@@ -163,47 +126,60 @@ function hideMovieModal() {
     document.body.style.overflow = 'auto';
 }
 
-function loadMoreMovies() {
-    if (isSearchMode) {
-        showStatus('error', 'Cannot load more movies while in search mode. Clear search first.');
+function setupPagination(data) {
+    if (data.last_page <= 1) {
+        elements.pagination.innerHTML = '';
         return;
     }
+
+    const maxVisible = 5;
+    const start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+    const end = Math.min(data.last_page, start + maxVisible - 1);
+    let html = '';
+
+    // Previous button
+    if (currentPage > 1) {
+        html += `<button class="page-btn" onclick="changePage(${currentPage - 1})">« Previous</button>`;
+    }
     
-    const nextPage = currentPage + 1;
-    fetchMovies(nextPage);
+    // First page
+    if (start > 1) {
+        html += `<button class="page-btn" onclick="changePage(1)">1</button>`;
+        if (start > 2) {
+            html += `<span class="page-dots">...</span>`;
+        }
+    }
+    
+    // Page numbers
+    for (let i = start; i <= end; i++) {
+        html += `<button class="page-btn ${i === currentPage ? 'active' : ''}" onclick="changePage(${i})">${i}</button>`;
+    }
+    
+    // Last page
+    if (end < data.last_page) {
+        if (end < data.last_page - 1) {
+            html += `<span class="page-dots">...</span>`;
+        }
+        html += `<button class="page-btn" onclick="changePage(${data.last_page})">${data.last_page}</button>`;
+    }
+    
+    // Next button
+    if (currentPage < data.last_page) {
+        html += `<button class="page-btn" onclick="changePage(${currentPage + 1})">Next »</button>`;
+    }
+
+    elements.pagination.innerHTML = html;
 }
 
-function handleSearch() {
-    const query = elements.searchInput.value.trim();
-    if (query) {
-        searchMovies(query);
-    } else {
-        // If search is empty, show all movies
-        displayMovies(allMovies);
-        isSearchMode = false;
-        showStatus('success', 'Showing all movies');
+function changePage(page) {
+    if (page !== currentPage && page >= 1 && page <= totalPages) {
+        fetchMovies(page);
+        // Scroll to top when changing pages
+        window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 }
 
 // Event listeners
-elements.searchBtn.addEventListener('click', handleSearch);
-
-elements.searchInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-        handleSearch();
-    }
-});
-
-elements.searchInput.addEventListener('input', (e) => {
-    if (e.target.value === '') {
-        displayMovies(allMovies);
-        isSearchMode = false;
-        showStatus('success', 'Showing all movies');
-    }
-});
-
-elements.loadMoreBtn.addEventListener('click', loadMoreMovies);
-
 elements.closeModal.addEventListener('click', hideMovieModal);
 
 elements.movieModal.addEventListener('click', (e) => {
@@ -218,6 +194,9 @@ document.addEventListener('keydown', (e) => {
         hideMovieModal();
     }
 });
+
+// Make changePage globally accessible
+window.changePage = changePage;
 
 // Load initial movies on page load
 document.addEventListener('DOMContentLoaded', () => {
