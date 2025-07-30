@@ -1,10 +1,8 @@
-// DOM elements
 const elements = {
     loadingIndicator: document.getElementById('loadingIndicator'),
     errorMessage: document.getElementById('errorMessage'),
     successMessage: document.getElementById('successMessage'),
     moviesGrid: document.getElementById('moviesGrid'),
-    pagination: document.getElementById('pagination'),
     movieModal: document.getElementById('movieModal'),
     closeModal: document.getElementById('closeModal'),
     modalPoster: document.getElementById('modalPoster'),
@@ -19,8 +17,9 @@ const elements = {
 let currentPage = 1;
 let totalPages = 1;
 let currentMovies = [];
+let isLoading = false;
+let hasMorePages = true;
 
-// Utility functions
 function showStatus(type, message) {
     elements.loadingIndicator.classList.add('hidden');
     elements.errorMessage.classList.add('hidden');
@@ -37,10 +36,51 @@ function showStatus(type, message) {
     }
 }
 
-// API functions demonstrating JavaScript promises
-function fetchMovies(page = 1) {
-    showStatus('loading');
-    currentPage = page;
+function createGhostCards(count = 6) {
+    const ghostCards = [];
+    for (let i = 0; i < count; i++) {
+        ghostCards.push(`
+            <div class="movie-card ghost-loading">
+                <div class="ghost-poster"></div>
+                <div class="movie-info">
+                    <div class="ghost-title"></div>
+                    <div class="ghost-overview"></div>
+                    <div class="ghost-overview"></div>
+                    <div class="movie-meta">
+                        <div class="ghost-rating"></div>
+                        <div class="ghost-date"></div>
+                    </div>
+                </div>
+            </div>
+        `);
+    }
+    return ghostCards.join('');
+}
+
+function showGhostLoading() {
+    const ghostContainer = document.createElement('div');
+    ghostContainer.id = 'ghostContainer';
+    ghostContainer.innerHTML = createGhostCards();
+    elements.moviesGrid.appendChild(ghostContainer);
+}
+
+function removeGhostLoading() {
+    const ghostContainer = document.getElementById('ghostContainer');
+    if (ghostContainer) {
+        ghostContainer.remove();
+    }
+}
+
+function fetchMovies(page = 1, append = false) {
+    if (isLoading) return Promise.resolve();
+    
+    isLoading = true;
+    
+    if (!append) {
+        showStatus('loading');
+    } else {
+        showGhostLoading();
+    }
     
     return fetch(`https://jsonfakery.com/movies/paginated?page=${page}`)
         .then(response => {
@@ -48,21 +88,34 @@ function fetchMovies(page = 1) {
             return response.json();
         })
         .then(data => {
-            currentMovies = data.data;
+            if (append) {
+                // Append new movies to existing array
+                currentMovies = [...currentMovies, ...data.data];
+                removeGhostLoading();
+                appendMovies(data.data);
+            } else {
+                // Replace movies (initial load)
+                currentMovies = data.data;
+                displayMovies(currentMovies);
+            }
+            
             totalPages = data.last_page;
             currentPage = data.current_page;
+            hasMorePages = currentPage < totalPages;
             
-            displayMovies(currentMovies);
-            setupPagination(data);
-            showStatus('success', `Loaded ${data.data.length} movies from page ${currentPage}`);
+            if (!append) {
+                showStatus('success', `Loaded ${data.data.length} movies`);
+            }
+            
             return data;
         })
         .catch(error => {
+            removeGhostLoading();
             showStatus('error', `Failed to load movies: ${error.message}`);
             throw error;
         })
         .finally(() => {
-            // Promise finally block - cleanup operations can go here
+            isLoading = false;
         });
 }
 
@@ -72,13 +125,39 @@ function displayMovies(movies) {
         elements.moviesGrid.innerHTML = `
             <div class="empty-state">
                 <h3>🎬 No movies found</h3>
-                <p>Try loading a different page!</p>
+                <p>Try refreshing the page!</p>
             </div>`;
         return;
     }
 
-    elements.moviesGrid.innerHTML = movies.map((movie, index) => `
-        <div class="movie-card" style="animation-delay: ${index * 0.05}s" data-movie-index="${index}">
+    elements.moviesGrid.innerHTML = movies.map((movie, index) => createMovieCard(movie, index)).join('');
+    addMovieCardListeners();
+}
+
+// Append new movies to existing grid
+function appendMovies(movies) {
+    const startIndex = currentMovies.length - movies.length;
+    const newMoviesHTML = movies.map((movie, index) => 
+        createMovieCard(movie, startIndex + index)
+    ).join('');
+    
+    elements.moviesGrid.insertAdjacentHTML('beforeend', newMoviesHTML);
+    
+    // Add listeners only to new cards
+    const newCards = elements.moviesGrid.querySelectorAll('.movie-card:not([data-listener-added])');
+    newCards.forEach((card) => {
+        card.addEventListener('click', () => {
+            const movieIndex = parseInt(card.dataset.movieIndex);
+            const movie = currentMovies[movieIndex];
+            showMovieModal(movie);
+        });
+        card.setAttribute('data-listener-added', 'true');
+    });
+}
+
+function createMovieCard(movie, index) {
+    return `
+        <div class="movie-card" style="animation-delay: ${(index % 20) * 0.05}s" data-movie-index="${index}">
             <img src="${movie.poster_path || 'https://via.placeholder.com/280x200?text=No+Image'}" 
                  alt="${movie.original_title}" class="movie-poster"
                  onerror="this.src='https://via.placeholder.com/280x200?text=No+Image'">
@@ -91,20 +170,18 @@ function displayMovies(movies) {
                 </div>
             </div>
         </div>
-    `).join('');
-
-    // Add click event listeners to movie cards
-    addMovieCardListeners();
+    `;
 }
 
 function addMovieCardListeners() {
-    const movieCards = document.querySelectorAll('.movie-card');
+    const movieCards = document.querySelectorAll('.movie-card:not([data-listener-added])');
     movieCards.forEach((card) => {
         card.addEventListener('click', () => {
             const movieIndex = parseInt(card.dataset.movieIndex);
             const movie = currentMovies[movieIndex];
             showMovieModal(movie);
         });
+        card.setAttribute('data-listener-added', 'true');
     });
 }
 
@@ -126,57 +203,38 @@ function hideMovieModal() {
     document.body.style.overflow = 'auto';
 }
 
-function setupPagination(data) {
-    if (data.last_page <= 1) {
-        elements.pagination.innerHTML = '';
-        return;
-    }
-
-    const maxVisible = 5;
-    const start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
-    const end = Math.min(data.last_page, start + maxVisible - 1);
-    let html = '';
-
-    // Previous button
-    if (currentPage > 1) {
-        html += `<button class="page-btn" onclick="changePage(${currentPage - 1})">« Previous</button>`;
-    }
+// Infinite scroll functionality
+function handleScroll() {
+    // Check if user has scrolled near the bottom
+    const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+    const windowHeight = window.innerHeight;
+    const documentHeight = document.documentElement.scrollHeight;
     
-    // First page
-    if (start > 1) {
-        html += `<button class="page-btn" onclick="changePage(1)">1</button>`;
-        if (start > 2) {
-            html += `<span class="page-dots">...</span>`;
-        }
+    // Trigger load when user is 200px from bottom
+    if (scrollTop + windowHeight >= documentHeight - 200) {
+        loadMoreMovies();
     }
-    
-    // Page numbers
-    for (let i = start; i <= end; i++) {
-        html += `<button class="page-btn ${i === currentPage ? 'active' : ''}" onclick="changePage(${i})">${i}</button>`;
-    }
-    
-    // Last page
-    if (end < data.last_page) {
-        if (end < data.last_page - 1) {
-            html += `<span class="page-dots">...</span>`;
-        }
-        html += `<button class="page-btn" onclick="changePage(${data.last_page})">${data.last_page}</button>`;
-    }
-    
-    // Next button
-    if (currentPage < data.last_page) {
-        html += `<button class="page-btn" onclick="changePage(${currentPage + 1})">Next »</button>`;
-    }
-
-    elements.pagination.innerHTML = html;
 }
 
-function changePage(page) {
-    if (page !== currentPage && page >= 1 && page <= totalPages) {
-        fetchMovies(page);
-        // Scroll to top when changing pages
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+function loadMoreMovies() {
+    if (!isLoading && hasMorePages) {
+        const nextPage = currentPage + 1;
+        fetchMovies(nextPage, true);
     }
+}
+
+// Throttle scroll event for better performance
+function throttle(func, limit) {
+    let inThrottle;
+    return function() {
+        const args = arguments;
+        const context = this;
+        if (!inThrottle) {
+            func.apply(context, args);
+            inThrottle = true;
+            setTimeout(() => inThrottle = false, limit);
+        }
+    };
 }
 
 // Event listeners
@@ -195,8 +253,8 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
-// Make changePage globally accessible
-window.changePage = changePage;
+// Add scroll event listener with throttling
+window.addEventListener('scroll', throttle(handleScroll, 100));
 
 // Load initial movies on page load
 document.addEventListener('DOMContentLoaded', () => {
